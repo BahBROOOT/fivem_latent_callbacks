@@ -1,6 +1,6 @@
 # fivem_latent_callbacks
 
-This script enables you to Make "latent" callbacks, using the Native Trigger(Client/Server)LatentEvent enabeling to transfer huge payloads from server -> client and opposite. You can use it for Data Transfer or simply for your normal callbacks.
+This script enables you to make "latent" callbacks, using the Native Trigger(Client/Server)LatentEvent enabeling to transfer huge payloads from server -> client and opposite. You can use it for Data Transfer or simply for your normal callbacks.
 
 **PLEASE NOTE that when transfering huge payloads the whole server network can freeze, not letting any other event come thru!**
 
