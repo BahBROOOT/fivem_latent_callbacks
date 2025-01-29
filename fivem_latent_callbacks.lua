@@ -6,14 +6,14 @@ local callbackRegistry = {}
 local requestPromises = {}
 local incomingChunks = {}
 
--- Bandwidth limit for latent callbacks (in bps). Adjust if necessary.
+-- Bandwidth limit for latent callbacks in bitspersecond (bps). Adjust if necessary.
 local BANDWIDTH_LIMIT = 1000000
 
 local function generateTicket()
     return tostring(math.random(100000, 999999)) .. tostring(math.random(100000, 999999))
 end
 
--- Registers a callback function for the specified event name.
+-- Registers a callback function for the provided event name.
 -- @param eventName [string]    The event name.
 -- @param func      [function]  The callback function.
 function RegisterCallback(eventName, func)
@@ -28,7 +28,7 @@ function UnregisterCallback(eventName)
     callbackRegistry[eventName] = nil
 end
 
--- Actually handles the request by calling the registered function.
+-- Handles the request by calling the registered function.
 -- @param eventName    [string]  The event name.
 -- @param ticket       [string]  The unique request ticket.
 -- @param decodedArgs  [table]   Decoded arguments from the client.
