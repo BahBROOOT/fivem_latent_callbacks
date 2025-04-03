@@ -198,9 +198,8 @@ Your scripts don't need to be changed — both formats will work.
 ## Tips
 
 - Use **latent** callbacks for:
-  - Inventory data
-  - Skins/appearance blobs
-  - Huge lists (crafting, housing, etc.)
+  - base64 data
+  - Huge lists
 - Keep **normal** callbacks for quick responses (e.g., validation, permission checks)
 
 ---
