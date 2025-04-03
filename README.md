@@ -14,7 +14,7 @@ This script enables **client↔server callbacks** using both **normal** and **la
 ## 🚀 How to Use
 
 1. **Download fivem_latent_callbacks.lua** and put it into your ressource somewhere
-2. **Initialize the file** in your fxmanifest.lua using `shared_script 'fivem_latent_callbacks.lua`
+2. **Initialize the file** as a shared script in your fxmanifest.lua using `shared_script 'fivem_latent_callbacks.lua`
 3. **Register a callback** using `RegisterCallback(eventName, function(args))` on the client or server.  
 4. **Trigger a callback** using `TriggerCallback(...)` or `TriggerLatentCallback(...)` from the opposite side.  
 5. **Receive and return values** just like a function.  
