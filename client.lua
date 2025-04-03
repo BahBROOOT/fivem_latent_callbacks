@@ -1,31 +1,22 @@
--- This command tests the normal callback.
+-- Callback handler for server-triggered call
+RegisterCallback("client:hello", function(args)
+    print("[Client] Callback received:", args.foo)
+    return "Client here!", 999
+end)
+
+-- Normal callback usage
 RegisterCommand("testcallback", function()
-    print("[Client] Triggering normal callback...")
-
-    -- We'll call the server callback with a small data table.
-    local greeting, number = TriggerCallback(
-        "myTestEvent",                     -- callback event name
-        { __playerId = GetPlayerServerId(PlayerId()), foo="bar" }, -- arguments
-        5                                   -- timeout in seconds
-    )
-
-    print("[Client] Received from server:", greeting, number)
+    local greeting, num = TriggerCallback("myTestEvent", { foo = "bar" }, 5)
+    print("[Client] Server replied:", greeting, num)
 end, false)
 
--- This command tests the latent callback.
+-- Latent callback for big data
 RegisterCommand("testlatent", function()
-    print("[Client] Triggering latent callback...")
-
-    -- We'll request a large payload from the server.
-    local data = TriggerLatentCallback(
-        "myLatentEvent",                   -- callback event name
-        { __playerId = GetPlayerServerId(PlayerId()) },
-        10                                  -- timeout in seconds
-    )
+    local data = TriggerLatentCallback("myLatentEvent", {}, 10)
 
     if data then
-        print("[Client] Received large payload from server. Length:", #data[1])
+        print("[Client] Big data received. Items:", #data)
     else
-        print("[Client] No data received or timed out.")
+        print("[Client] No data or timeout.")
     end
 end, false)

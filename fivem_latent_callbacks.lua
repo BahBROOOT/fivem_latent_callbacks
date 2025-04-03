@@ -33,6 +33,7 @@ local incomingChunks = {}
 -- Bandwidth limit for latent callbacks in bitspersecond (bps). Adjust if necessary.
 local BANDWIDTH_LIMIT = 1000000
 
+-- Generates a random ticket string to uniquely identify each callback request.
 local function generateTicket()
     return tostring(math.random(100000, 999999)) .. tostring(math.random(100000, 999999))
 end
@@ -61,7 +62,7 @@ end
 local function handleRequest(eventName, ticket, decodedArgs, sourcePlayer)
     local func = callbackRegistry[eventName]
     if not func then
-        return { error = ("No such callback: %s"):format(eventName) }
+        return table.pack(nil, ("No such callback: %s"):format(eventName))
     end
 
     -- Build args to pass to the callback function.
@@ -70,8 +71,8 @@ local function handleRequest(eventName, ticket, decodedArgs, sourcePlayer)
         callbackArgs[k] = v
     end
 
-    -- Return the callback function result in a table.
-    return { func(callbackArgs) }
+    -- Return the callback function result using table.pack to preserve multiple return values.
+    return table.pack(func(callbackArgs))
 end
 
 -- Called when a response is received.
@@ -84,10 +85,8 @@ local function handleResponse(ticket, decodedData, useLatent, target)
     local p = requestPromises[ticket]
     if p then
         requestPromises[ticket] = nil
-        p:resolve(table.unpack(decodedData))
+        p:resolve(decodedData)
     end
-
-    -- Optionally forward data back to the other side if needed. eg for chain calls.
 end
 
 -- Accumulates data chunks for latent events.
@@ -127,22 +126,25 @@ function TriggerCallback(eventName, args, timeout, asyncCallback, method)
     local p = promise.new()
     requestPromises[ticket] = p
 
+    -- Set optional timeout to reject the promise if not resolved.
     if timeout and timeout > 0 then
         SetTimeout(timeout * 1000, function()
             if requestPromises[ticket] then
                 requestPromises[ticket] = nil
-                p:reject("Callback timed out.")
+                p:reject({ error = "Callback timed out." })
             end
         end)
     end
 
-    local packed = mpPack(args)
     local useLatent = (method == "latent")
 
     if IS_SERVER then
+        -- Server must be calling a client. Extract playerId from args.
         local playerId = args.__playerId
         assert(playerId, "TriggerCallback (server): Missing __playerId in args.")
         args.__playerId = nil
+
+        local packed = mpPack(args)
 
         if useLatent then
             TriggerLatentClientEvent("callback:request", playerId, BANDWIDTH_LIMIT, eventName, ticket, packed)
@@ -150,6 +152,9 @@ function TriggerCallback(eventName, args, timeout, asyncCallback, method)
             TriggerClientEvent("callback:request", playerId, eventName, ticket, packed)
         end
     else
+        -- Client to server, no __playerId needed.
+        local packed = mpPack(args)
+
         if useLatent then
             TriggerLatentServerEvent("callback:request", BANDWIDTH_LIMIT, eventName, ticket, packed)
         else
@@ -157,19 +162,32 @@ function TriggerCallback(eventName, args, timeout, asyncCallback, method)
         end
     end
 
+    -- If asyncCallback is provided, run in a new thread and invoke it with results.
     if asyncCallback then
         Citizen.CreateThread(function()
             local result = Citizen.Await(p)
-            asyncCallback(table.unpack(result))
-        end)
+            if type(result) == "table" and result.n ~= nil then
+                asyncCallback(table.unpack(result, 1, result.n))
+            elseif type(result) == "table" then
+                asyncCallback(table.unpack(result))
+            else
+                asyncCallback(result)
+            end
+        end)    
         return
     else
         local result = Citizen.Await(p)
-        if type(result) == "table" then
+
+        -- If this is a packed return (table with `n`), unpack it.
+        if type(result) == "table" and result.n ~= nil then
+            return table.unpack(result, 1, result.n)
+        -- If it's a regular table (not packed), just return it
+        elseif type(result) == "table" then
             return table.unpack(result)
         else
             return result
         end
+    
     end
 end
 
