@@ -64,8 +64,6 @@ end)
 
 Unregisters a previously registered callback.
 
----
-
 ### `TriggerCallback(eventName, args, timeout?, asyncCallback?, method?)`
 
 Triggers a callback on the other side (client ↔ server).
@@ -84,8 +82,6 @@ local a, b = TriggerCallback(
 - `timeout`: seconds before the promise is rejected  
 - `asyncCallback`: if provided, callback runs asynchronously  
 - `method`: `'normal'` (default) or `'latent'` (for large data)
-
----
 
 ### `TriggerLatentCallback(eventName, args, timeout?, asyncCallback?)`
 
