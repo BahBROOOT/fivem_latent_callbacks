@@ -1,17 +1,17 @@
-# 🔁 fivem_latent_callbacks
+# fivem_latent_callbacks
 
 This script enables **client↔server callbacks** using both **normal** and **latent** event transfer in FiveM. It supports:
 
-- ✅ **Normal callbacks** for typical communication  
-- ✅ **Latent callbacks** using `Trigger(Client/Server)LatentEvent` for **large data**  
-- ✅ **Multiple return values**: `return val1, val2, val3` (no need for `{}`!)  
-- ✅ **Backwards compatibility**: supports `return { data }`  
-- ✅ No need to manually pass `__playerId` from client to server  
-- ✅ Built-in support for timeouts, chunked data, and msgpack serialization  
+- **Normal callbacks** for typical communication  
+- **Latent callbacks** using `Trigger(Client/Server)LatentEvent` for **large data**  
+- **Multiple return values**: `return val1, val2, val3` (no need for `{}`!)  
+- **Backwards compatibility**: supports `return { data }`  
+- No need to manually pass `__playerId` from client to server  
+- Built-in support for timeouts, chunked data, and msgpack serialization  
 
 ---
 
-## 🚀 How to Use
+## How to Use
 
 1. **Download fivem_latent_callbacks.lua** and put it into your ressource somewhere
 2. **Initialize the file** as a shared script in your fxmanifest.lua using `shared_script 'fivem_latent_callbacks.lua`
@@ -35,7 +35,7 @@ print(msg, number) -- prints: It works!  42
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Inside `fivem_latent_callbacks.lua`, you can adjust the **bandwidth limit for latent callbacks** (in bits per second):
 
@@ -47,9 +47,9 @@ local BANDWIDTH_LIMIT = 1000000 -- 1 Mbps default
 
 ---
 
-## 🧠 API
+## API
 
-### ✅ `RegisterCallback(eventName, function(args))`
+### `RegisterCallback(eventName, function(args))`
 
 Registers a callback handler.
 
@@ -60,13 +60,13 @@ RegisterCallback("myEvent", function(args)
 end)
 ```
 
-### ✅ `UnregisterCallback(eventName)`
+### `UnregisterCallback(eventName)`
 
 Unregisters a previously registered callback.
 
 ---
 
-### ✅ `TriggerCallback(eventName, args, timeout?, asyncCallback?, method?)`
+### `TriggerCallback(eventName, args, timeout?, asyncCallback?, method?)`
 
 Triggers a callback on the other side (client ↔ server).
 
@@ -87,7 +87,7 @@ local a, b = TriggerCallback(
 
 ---
 
-### ✅ `TriggerLatentCallback(eventName, args, timeout?, asyncCallback?)`
+### `TriggerLatentCallback(eventName, args, timeout?, asyncCallback?)`
 
 Shorthand for triggering a latent callback:
 
@@ -97,7 +97,7 @@ TriggerLatentCallback("myLatentEvent", args, timeout, callback)
 
 ---
 
-## 📦 fxmanifest.lua
+## fxmanifest.lua
 
 ```lua
 fx_version 'cerulean'
@@ -110,7 +110,7 @@ client_script 'client.lua'
 
 ---
 
-## 🖥️ Server Example (`server.lua`)
+## Server Example (`server.lua`)
 
 ```lua
 -- Normal callback example
@@ -144,7 +144,7 @@ end, false)
 
 ---
 
-## 🖱️ Client Example (`client.lua`)
+## Client Example (`client.lua`)
 
 ```lua
 -- Callback handler for server-triggered call
@@ -173,7 +173,7 @@ end, false)
 
 ---
 
-## 🧪 Return Styles
+## Return Styles
 
 Both of these are supported:
 
@@ -189,7 +189,7 @@ Your scripts don't need to be changed — both formats will work.
 
 ---
 
-## 🛠 Troubleshooting
+## Troubleshooting
 
 | Issue                         | Fix                                                                 |
 |------------------------------|----------------------------------------------------------------------|
@@ -199,7 +199,7 @@ Your scripts don't need to be changed — both formats will work.
 
 ---
 
-## 💡 Tips
+## Tips
 
 - Use **latent** callbacks for:
   - Inventory data
@@ -209,7 +209,7 @@ Your scripts don't need to be changed — both formats will work.
 
 ---
 
-## ✅ Compatibility
+## Compatibility
 
 - ✅ Works with both `return ...` and `return { ... }`  
 - ✅ Works server→client and client→server  
@@ -218,7 +218,7 @@ Your scripts don't need to be changed — both formats will work.
 
 ---
 
-## ✅ Credits
+## Credits
 
 **Author**: BahBROOOT (aka BahBROOOT1)  
 **License**: MIT — free to use and modify  
