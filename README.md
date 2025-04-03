@@ -2,12 +2,36 @@
 
 This script enables **client↔server callbacks** using both **normal** and **latent** event transfer in FiveM. It supports:
 
-- ✅ **Normal callbacks** for typical communication
-- ✅ **Latent callbacks** using `Trigger(Client/Server)LatentEvent` for **large data**
-- ✅ **Multiple return values**: `return val1, val2, val3` (no need for `{}`!)
-- ✅ **Backwards compatibility**: supports `return { data }`
-- ✅ No need to manually pass `__playerId` from client to server
-- ✅ Built-in support for timeouts, chunked data, and msgpack serialization
+- ✅ **Normal callbacks** for typical communication  
+- ✅ **Latent callbacks** using `Trigger(Client/Server)LatentEvent` for **large data**  
+- ✅ **Multiple return values**: `return val1, val2, val3` (no need for `{}`!)  
+- ✅ **Backwards compatibility**: supports `return { data }`  
+- ✅ No need to manually pass `__playerId` from client to server  
+- ✅ Built-in support for timeouts, chunked data, and msgpack serialization  
+
+---
+
+## 🚀 How to Use
+
+1. **Download fivem_latent_callbacks.lua** and put it into your ressource somewhere
+2. **Initialize the file** in your fxmanifest.lua using `shared_script 'fivem_latent_callbacks.lua`
+3. **Register a callback** using `RegisterCallback(eventName, function(args))` on the client or server.  
+4. **Trigger a callback** using `TriggerCallback(...)` or `TriggerLatentCallback(...)` from the opposite side.  
+5. **Receive and return values** just like a function.  
+6. **Optionally handle responses asynchronously** by providing a callback function.  
+7. Use `UnregisterCallback(...)` if you need to remove it dynamically.
+
+Example:
+```lua
+-- Server
+RegisterCallback("myCallback", function(args)
+    return "It works!", 42
+end)
+
+-- Client
+local msg, number = TriggerCallback("myCallback")
+print(msg, number) -- prints: It works!  42
+```
 
 ---
 
@@ -36,8 +60,6 @@ RegisterCallback("myEvent", function(args)
 end)
 ```
 
----
-
 ### ✅ `UnregisterCallback(eventName)`
 
 Unregisters a previously registered callback.
@@ -58,9 +80,9 @@ local a, b = TriggerCallback(
 )
 ```
 
-- `args`: table of arguments (client → server doesn’t need `__playerId`)
-- `timeout`: seconds before the promise is rejected
-- `asyncCallback`: if provided, callback runs asynchronously
+- `args`: table of arguments (client → server doesn’t need `__playerId`)  
+- `timeout`: seconds before the promise is rejected  
+- `asyncCallback`: if provided, callback runs asynchronously  
 - `method`: `'normal'` (default) or `'latent'` (for large data)
 
 ---
@@ -189,10 +211,10 @@ Your scripts don't need to be changed — both formats will work.
 
 ## ✅ Compatibility
 
-- ✅ Works with both `return ...` and `return { ... }`
-- ✅ Works server→client and client→server
-- ✅ Uses `msgpack` for efficiency
-- ✅ Supports large payloads and timeouts
+- ✅ Works with both `return ...` and `return { ... }`  
+- ✅ Works server→client and client→server  
+- ✅ Uses `msgpack` for efficiency  
+- ✅ Supports large payloads and timeouts  
 
 ---
 
