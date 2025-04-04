@@ -22,77 +22,120 @@
     SOFTWARE.
 ]]--
 
+-- Thx LLM's for the comments hehe (This looked like garbage before)
+
+--[[
+    This module provides a callback system for client-server communication in FiveM.
+    It allows for both normal and latent callbacks, with support for binary data
+    serialization using msgpack. The system handles request-response patterns and
+    manages timeouts and chunked data transfer for large payloads.
+]]--
+
+--------------------------------------------------------------------------------
+-- Shared Callback Implementation
+--------------------------------------------------------------------------------
+
 local IS_SERVER = IsDuplicityVersion()
+
+-- Use msgpack for binary serialization of payloads
 local msgpack = msgpack
 local mpPack = msgpack.pack
 local mpUnpack = msgpack.unpack
-local callbackRegistry = {}
-local requestPromises = {}
-local incomingChunks = {}
 
--- Bandwidth limit for latent callbacks in bitspersecond (bps). Adjust if necessary.
-local BANDWIDTH_LIMIT = 1000000
+-- Internal state tables
+local callbackRegistry = {}       -- Stores registered callbacks (eventName => function)
+local requestPromises = {}        -- Stores awaiting callback responses (ticket => promise)
+local incomingChunks = {}         -- Stores chunks received for a ticket (used in latent mode)
+local resolvedTickets = {}        -- Prevents double-resolution of a ticket
 
--- Generates a random ticket string to uniquely identify each callback request.
+-- Bandwidth limit for latent callbacks (in bits per second)
+local BANDWIDTH_LIMIT = 1000000 -- 1 Mbps by default
+
+-- Generates a random unique string used as a ticket ID
 local function generateTicket()
     return tostring(math.random(100000, 999999)) .. tostring(math.random(100000, 999999))
 end
 
--- Registers a callback function for the provided event name.
--- @param eventName [string]    The event name.
--- @param func      [function]  The callback function.
+--------------------------------------------------------------------------------
+-- Register/Unregister
+--------------------------------------------------------------------------------
+
+--- Registers a named callback handler
+---@param eventName string
+---@param func function
 function RegisterCallback(eventName, func)
     assert(type(eventName) == "string", "RegisterCallback: eventName must be a string.")
     assert(type(func) == "function", "RegisterCallback: func must be a function.")
     callbackRegistry[eventName] = func
 end
 
--- Unregisters (removes) a callback.
--- @param eventName [string]  The event name to remove.
+--- Unregisters a named callback
+---@param eventName string
 function UnregisterCallback(eventName)
     callbackRegistry[eventName] = nil
 end
 
--- Handles the request by calling the registered function.
--- @param eventName    [string]  The event name.
--- @param ticket       [string]  The unique request ticket.
--- @param decodedArgs  [table]   Decoded arguments from the client.
--- @param sourcePlayer [number]  The player source (server) or -1 (client).
--- @return table The result of the callback function.
+--------------------------------------------------------------------------------
+-- Internal - Handling Requests
+--------------------------------------------------------------------------------
+
 local function handleRequest(eventName, ticket, decodedArgs, sourcePlayer)
     local func = callbackRegistry[eventName]
     if not func then
         return table.pack(nil, ("No such callback: %s"):format(eventName))
     end
 
-    -- Build args to pass to the callback function.
+    -- Build the argument table that the callback sees
     local callbackArgs = { source = sourcePlayer }
     for k, v in pairs(decodedArgs) do
         callbackArgs[k] = v
     end
 
-    -- Return the callback function result using table.pack to preserve multiple return values.
-    return table.pack(func(callbackArgs))
-end
+    -- Run the registered callback
+    local results = { func(callbackArgs) }
 
--- Called when a response is received.
--- Resolves the stored promise for the request.
--- @param ticket      [string] The request ticket.
--- @param decodedData [table]  Decoded response data.
--- @param useLatent   [bool]   Whether latent was used.
--- @param target      [number] Target player or -1 (client).
-local function handleResponse(ticket, decodedData, useLatent, target)
-    local p = requestPromises[ticket]
-    if p then
-        requestPromises[ticket] = nil
-        p:resolve(decodedData)
+    -- Always wrap returns so they can be unpacked consistently
+    if #results > 1 then
+        return table.pack(table.unpack(results))
+    elseif type(results[1]) == "table" then
+        return table.pack(results[1])
+    else
+        return table.pack(results[1])
     end
 end
 
--- Accumulates data chunks for latent events.
--- @param ticket [string] Unique request ticket.
--- @param chunk  [string] Data chunk.
--- @return table|nil Decoded data if complete, otherwise nil.
+--------------------------------------------------------------------------------
+-- Internal - Handling Responses
+--------------------------------------------------------------------------------
+
+local function handleResponse(ticket, decodedData, isLatent, target)
+    if resolvedTickets[ticket] then
+        print("[Callback] Ticket already resolved:", ticket)
+        return
+    end
+
+    resolvedTickets[ticket] = true
+
+    local p = requestPromises[ticket]
+    if p then
+        requestPromises[ticket] = nil
+        -- print("[Callback] Resolving ticket:", ticket)
+
+        -- If data is a packed table with .n, unpack it
+        if type(decodedData) == "table" and decodedData.n then
+            p:resolve(table.unpack(decodedData, 1, decodedData.n))
+        else
+            p:resolve(decodedData)
+        end
+    else
+        print("[Callback] No promise found for ticket:", ticket)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- Internal - Accumulate Data for Latent
+--------------------------------------------------------------------------------
+
 local function accumulateData(ticket, chunk)
     if not incomingChunks[ticket] then
         incomingChunks[ticket] = { data = "", complete = false }
@@ -101,50 +144,61 @@ local function accumulateData(ticket, chunk)
     local entry = incomingChunks[ticket]
     entry.data = entry.data .. chunk
 
+    -- 10MB payload limit for safety
+    if #entry.data > 10 * 1024 * 1024 then
+        print("[Callback] Payload too large. Discarding:", ticket)
+        incomingChunks[ticket] = nil
+        return nil
+    end
+
     local success, decoded = pcall(mpUnpack, entry.data)
     if success and decoded then
         entry.complete = true
+        -- print("[Callback] Payload fully received for ticket:", ticket)
         return decoded
+    else
+        -- print("[Callback] Waiting on chunks. Ticket:", ticket, "Size:", #entry.data)
     end
 
     return nil
 end
 
--- Triggers a callback on the other side (server->client or client->server).
--- @param eventName     [string]          The callback event name.
--- @param args          [table]           Arguments for the callback.
--- @param timeout       [number, optional]Timeout in seconds.
--- @param asyncCallback [function]        Async callback.
--- @param method        [string]          'normal' or 'latent'.
+--------------------------------------------------------------------------------
+-- Public API - TriggerCallback
+--------------------------------------------------------------------------------
+
+--- Triggers a callback on the other side (client->server or server->client)
+---@param eventName string
+---@param args table|nil
+---@param timeout number|nil
+---@param asyncCallback function|nil
+---@param method "normal"|"latent"|nil
 function TriggerCallback(eventName, args, timeout, asyncCallback, method)
     assert(type(eventName) == "string", "TriggerCallback: eventName must be a string.")
 
     args = args or {}
     method = method or "normal"
-
     local ticket = generateTicket()
     local p = promise.new()
     requestPromises[ticket] = p
 
-    -- Set optional timeout to reject the promise if not resolved.
     if timeout and timeout > 0 then
         SetTimeout(timeout * 1000, function()
             if requestPromises[ticket] then
                 requestPromises[ticket] = nil
-                p:reject({ error = "Callback timed out." })
+                -- Must reject with a string so it doesn't cause a "SCRIPT ERROR: error object is not a string"
+                p:reject("Callback timed out.")
             end
         end)
     end
 
     local useLatent = (method == "latent")
+    local packed = mpPack(args)
 
     if IS_SERVER then
-        -- Server must be calling a client. Extract playerId from args.
         local playerId = args.__playerId
         assert(playerId, "TriggerCallback (server): Missing __playerId in args.")
         args.__playerId = nil
-
-        local packed = mpPack(args)
 
         if useLatent then
             TriggerLatentClientEvent("callback:request", playerId, BANDWIDTH_LIMIT, eventName, ticket, packed)
@@ -152,9 +206,6 @@ function TriggerCallback(eventName, args, timeout, asyncCallback, method)
             TriggerClientEvent("callback:request", playerId, eventName, ticket, packed)
         end
     else
-        -- Client to server, no __playerId needed.
-        local packed = mpPack(args)
-
         if useLatent then
             TriggerLatentServerEvent("callback:request", BANDWIDTH_LIMIT, eventName, ticket, packed)
         else
@@ -162,118 +213,88 @@ function TriggerCallback(eventName, args, timeout, asyncCallback, method)
         end
     end
 
-    -- If asyncCallback is provided, run in a new thread and invoke it with results.
+    -- If asyncCallback is provided, we handle asynchronously
     if asyncCallback then
         Citizen.CreateThread(function()
             local result = Citizen.Await(p)
-            if type(result) == "table" and result.n ~= nil then
+            if type(result) == "table" and result.n then
                 asyncCallback(table.unpack(result, 1, result.n))
-            elseif type(result) == "table" then
+            elseif type(result) == "table" and not getmetatable(result) then
                 asyncCallback(table.unpack(result))
             else
                 asyncCallback(result)
             end
-        end)    
+        end)
         return
     else
+        -- Otherwise, wait (blocking) for the response
         local result = Citizen.Await(p)
-
-        -- If this is a packed return (table with `n`), unpack it.
-        if type(result) == "table" and result.n ~= nil then
+        if type(result) == "table" and result.n then
             return table.unpack(result, 1, result.n)
-        -- If it's a regular table (not packed), just return it
-        elseif type(result) == "table" then
+        elseif type(result) == "table" and not getmetatable(result) then
             return table.unpack(result)
         else
             return result
         end
-    
     end
 end
 
--- Wrapper function for triggering a latent callback.
--- @param eventName     [string]
--- @param args          [table]
--- @param timeout       [number]
--- @param asyncCallback [function]
+--- Triggers a latent callback (wrapper)
 function TriggerLatentCallback(eventName, args, timeout, asyncCallback)
     return TriggerCallback(eventName, args, timeout, asyncCallback, "latent")
 end
 
+--------------------------------------------------------------------------------
 -- Event Handlers
 --------------------------------------------------------------------------------
 
 if IS_SERVER then
-    -- Called when client requests a callback.
+    -- Server receives a request from the client
     RegisterNetEvent("callback:request", function(eventName, ticket, partialData)
         local _source = source
-        local decoded
-        local success, result = pcall(mpUnpack, partialData)
-        if success and result then
-            decoded = result
-        else
-            decoded = accumulateData(ticket, partialData)
-        end
+        local decoded = accumulateData(ticket, partialData)
 
         if decoded then
             incomingChunks[ticket] = nil
             local response = handleRequest(eventName, ticket, decoded, _source)
             local packedRes = mpPack(response)
-
-            -- We respond using latent event to handle large data.
-            TriggerLatentClientEvent("callback:response", _source, BANDWIDTH_LIMIT, ticket, packedRes)
+            TriggerLatentClientEvent("callback:response", _source, BANDWIDTH_LIMIT, ticket, true, packedRes)
         end
     end)
 
-    -- Called when client sends a response.
-    RegisterNetEvent("callback:response", function(ticket, partialData)
-        local decoded
-        local success, result = pcall(mpUnpack, partialData)
-        if success and result then
-            decoded = result
-        else
-            decoded = accumulateData(ticket, partialData)
-        end
-
+    -- Server receives a response from the client
+    RegisterNetEvent("callback:response", function(ticket, isLatent, partialData)
+        -- print("[Callback] Received response. Ticket:", ticket, "Size:", #partialData, "Latent:", isLatent)
+        local decoded = isLatent and accumulateData(ticket, partialData) or (select(2, pcall(mpUnpack, partialData)))
         if decoded then
             incomingChunks[ticket] = nil
-            handleResponse(ticket, decoded, true, source)
+            handleResponse(ticket, decoded, isLatent, source)
+        else
+            -- print("[Callback] Waiting for more chunks. Ticket:", ticket)
         end
     end)
 else
-    -- Called when server requests a callback.
+    -- Client receives a request from the server
     RegisterNetEvent("callback:request", function(eventName, ticket, partialData)
-        local decoded
-        local success, result = pcall(mpUnpack, partialData)
-        if success and result then
-            decoded = result
-        else
-            decoded = accumulateData(ticket, partialData)
-        end
+        local decoded = accumulateData(ticket, partialData)
 
         if decoded then
             incomingChunks[ticket] = nil
             local response = handleRequest(eventName, ticket, decoded, -1)
             local packedRes = mpPack(response)
-
-            -- Respond with a latent server event.
-            TriggerLatentServerEvent("callback:response", BANDWIDTH_LIMIT, ticket, packedRes)
+            TriggerLatentServerEvent("callback:response", BANDWIDTH_LIMIT, ticket, true, packedRes)
         end
     end)
 
-    -- Called when server sends a response.
-    RegisterNetEvent("callback:response", function(ticket, partialData)
-        local decoded
-        local success, result = pcall(mpUnpack, partialData)
-        if success and result then
-            decoded = result
-        else
-            decoded = accumulateData(ticket, partialData)
-        end
-
+    -- Client receives a response from the server
+    RegisterNetEvent("callback:response", function(ticket, isLatent, partialData)
+        -- print("[Callback] Received response. Ticket:", ticket, "Size:", #partialData, "Latent:", isLatent)
+        local decoded = isLatent and accumulateData(ticket, partialData) or (select(2, pcall(mpUnpack, partialData)))
         if decoded then
             incomingChunks[ticket] = nil
-            handleResponse(ticket, decoded, true, -1)
+            handleResponse(ticket, decoded, isLatent, -1)
+        else
+            -- print("[Callback] Waiting for more chunks. Ticket:", ticket)
         end
     end)
 end
