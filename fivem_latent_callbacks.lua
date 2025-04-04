@@ -216,15 +216,16 @@ function TriggerCallback(eventName, args, timeout, asyncCallback, method)
         args.__playerId = nil
 
         if useLatent then
-            TriggerLatentClientEvent("callback:request", playerId, BANDWIDTH_LIMIT, eventName, ticket, packed)
+            
+            TriggerLatentClientEvent("callback:request", playerId, BANDWIDTH_LIMIT, eventName, ticket, packed, true)
         else
-            TriggerClientEvent("callback:request", playerId, eventName, ticket, packed)
+            TriggerClientEvent("callback:request", playerId, eventName, ticket, packed, false)
         end
     else
         if useLatent then
-            TriggerLatentServerEvent("callback:request", BANDWIDTH_LIMIT, eventName, ticket, packed)
+            TriggerLatentServerEvent("callback:request", BANDWIDTH_LIMIT, eventName, ticket, packed, true)
         else
-            TriggerServerEvent("callback:request", eventName, ticket, packed)
+            TriggerServerEvent("callback:request", eventName, ticket, packed, false)
         end
     end
 
@@ -265,23 +266,44 @@ end
 
 if IS_SERVER then
     -- Server receives a request from the client
-    RegisterNetEvent("callback:request", function(eventName, ticket, partialData)
-        local _source = source
-        local decoded = accumulateData(ticket, partialData)
+    RegisterNetEvent("callback:request", function(eventName, ticket, partialData, useLatentResponse)
+        local myCallback = callbackRegistry[eventName]
 
-        if decoded then
-            incomingChunks[ticket] = nil
-            local response = handleRequest(eventName, ticket, decoded, _source)
-            local packedRes = mpPack(response)
-            TriggerLatentClientEvent("callback:response", _source, BANDWIDTH_LIMIT, ticket, true, packedRes)
+        if not myCallback then
+            if debug then
+                print("[Callback] This callback is not registered or meant for me:", eventName)
+            end
+        end
+
+        if myCallback then
+            local _source = source
+            local decoded = accumulateData(ticket, partialData)
+
+            if decoded then
+                incomingChunks[ticket] = nil
+                local response = handleRequest(eventName, ticket, decoded, _source)
+                local packedRes = mpPack(response)
+                if useLatentResponse then
+                    if debug then
+                        print("[Callback] Latent response sent. Ticket:", ticket, "Size:", #packedRes)
+                    end
+                    TriggerLatentClientEvent("callback:response", _source, BANDWIDTH_LIMIT, eventName, ticket, true, packedRes)
+                else
+                    if debug then
+                        print("[Callback] Normal response sent. Ticket:", ticket, "Size:", #packedRes)
+                    end
+                    TriggerClientEvent("callback:response", _source, eventName, ticket, false, packedRes)
+                end
+            end
         end
     end)
 
     -- Server receives a response from the client
-    RegisterNetEvent("callback:response", function(ticket, isLatent, partialData)
+    RegisterNetEvent("callback:response", function(eventName, ticket, isLatent, partialData)
         if debug then
             print("[Callback] Received response. Ticket:", ticket, "Size:", #partialData, "Latent:", isLatent)
         end
+
         local decoded = isLatent and accumulateData(ticket, partialData) or (select(2, pcall(mpUnpack, partialData)))
         if decoded then
             incomingChunks[ticket] = nil
@@ -294,22 +316,43 @@ if IS_SERVER then
     end)
 else
     -- Client receives a request from the server
-    RegisterNetEvent("callback:request", function(eventName, ticket, partialData)
-        local decoded = accumulateData(ticket, partialData)
+    RegisterNetEvent("callback:request", function(eventName, ticket, partialData, useLatentResponse)
+        local myCallback = callbackRegistry[eventName]
 
-        if decoded then
-            incomingChunks[ticket] = nil
-            local response = handleRequest(eventName, ticket, decoded, -1)
-            local packedRes = mpPack(response)
-            TriggerLatentServerEvent("callback:response", BANDWIDTH_LIMIT, ticket, true, packedRes)
+        if not myCallback then
+            if debug then
+                print("[Callback] This callback is not registered or meant for me:", eventName)
+            end
+        end
+
+        if myCallback then
+            local decoded = accumulateData(ticket, partialData)
+
+            if decoded then
+                incomingChunks[ticket] = nil
+                local response = handleRequest(eventName, ticket, decoded, -1)
+                local packedRes = mpPack(response)
+                if useLatentResponse then
+                    if debug then
+                        print("[Callback] Latent response sent. Ticket:", ticket, "Size:", #packedRes)
+                    end
+                    TriggerLatentServerEvent("callback:response", BANDWIDTH_LIMIT, eventName, ticket, true, packedRes)
+                else
+                    if debug then
+                        print("[Callback] Normal response sent. Ticket:", ticket, "Size:", #packedRes)
+                    end
+                    TriggerServerEvent("callback:response", eventName, ticket, false, packedRes)
+                end
+            end
         end
     end)
 
     -- Client receives a response from the server
-    RegisterNetEvent("callback:response", function(ticket, isLatent, partialData)
+    RegisterNetEvent("callback:response", function(eventName, ticket, isLatent, partialData)
         if debug then
             print("[Callback] Received response. Ticket:", ticket, "Size:", #partialData, "Latent:", isLatent)
         end
+
         local decoded = isLatent and accumulateData(ticket, partialData) or (select(2, pcall(mpUnpack, partialData)))
         if decoded then
             incomingChunks[ticket] = nil
