@@ -115,7 +115,9 @@ end
 
 local function handleResponse(ticket, decodedData, isLatent, target)
     if resolvedTickets[ticket] then
-        print("[Callback] Ticket already resolved:", ticket)
+        if debug then
+            print("[Callback] Ticket already resolved:", ticket)
+        end
         return
     end
 
