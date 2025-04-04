@@ -51,6 +51,11 @@ local resolvedTickets = {}        -- Prevents double-resolution of a ticket
 -- Bandwidth limit for latent callbacks (in bits per second)
 local BANDWIDTH_LIMIT = 1000000 -- 1 Mbps by default
 
+local debug = false -- Set to true for debug messages
+if debug then
+    print("[Callback] Debug mode enabled.")
+end
+
 -- Generates a random unique string used as a ticket ID
 local function generateTicket()
     return tostring(math.random(100000, 999999)) .. tostring(math.random(100000, 999999))
@@ -119,7 +124,9 @@ local function handleResponse(ticket, decodedData, isLatent, target)
     local p = requestPromises[ticket]
     if p then
         requestPromises[ticket] = nil
-        -- print("[Callback] Resolving ticket:", ticket)
+        if debug then
+            print("[Callback] Resolving ticket:", ticket, "with data size:", #decodedData)
+        end
 
         -- If data is a packed table with .n, unpack it
         if type(decodedData) == "table" and decodedData.n then
@@ -128,7 +135,9 @@ local function handleResponse(ticket, decodedData, isLatent, target)
             p:resolve(decodedData)
         end
     else
-        print("[Callback] No promise found for ticket:", ticket)
+        if debug then
+            print("[Callback] No promise found for ticket:", ticket)
+        end
     end
 end
 
@@ -154,10 +163,14 @@ local function accumulateData(ticket, chunk)
     local success, decoded = pcall(mpUnpack, entry.data)
     if success and decoded then
         entry.complete = true
-        -- print("[Callback] Payload fully received for ticket:", ticket)
+        if debug then
+            print("[Callback] Successfully decoded data for ticket:", ticket, "Size:", #entry.data)
+        end
         return decoded
     else
-        -- print("[Callback] Waiting on chunks. Ticket:", ticket, "Size:", #entry.data)
+        if debug then
+            print("[Callback] Waiting for more chunks. Ticket:", ticket, "Size:", #entry.data)
+        end
     end
 
     return nil
@@ -186,7 +199,7 @@ function TriggerCallback(eventName, args, timeout, asyncCallback, method)
         SetTimeout(timeout * 1000, function()
             if requestPromises[ticket] then
                 requestPromises[ticket] = nil
-                -- Must reject with a string so it doesn't cause a "SCRIPT ERROR: error object is not a string"
+                -- Fix "SCRIPT ERROR: error object is not a string"
                 p:reject("Callback timed out.")
             end
         end)
@@ -264,13 +277,17 @@ if IS_SERVER then
 
     -- Server receives a response from the client
     RegisterNetEvent("callback:response", function(ticket, isLatent, partialData)
-        -- print("[Callback] Received response. Ticket:", ticket, "Size:", #partialData, "Latent:", isLatent)
+        if debug then
+            print("[Callback] Received response. Ticket:", ticket, "Size:", #partialData, "Latent:", isLatent)
+        end
         local decoded = isLatent and accumulateData(ticket, partialData) or (select(2, pcall(mpUnpack, partialData)))
         if decoded then
             incomingChunks[ticket] = nil
             handleResponse(ticket, decoded, isLatent, source)
         else
-            -- print("[Callback] Waiting for more chunks. Ticket:", ticket)
+            if debug then
+                print("[Callback] Waiting for more chunks. Ticket:", ticket)
+            end
         end
     end)
 else
@@ -288,13 +305,17 @@ else
 
     -- Client receives a response from the server
     RegisterNetEvent("callback:response", function(ticket, isLatent, partialData)
-        -- print("[Callback] Received response. Ticket:", ticket, "Size:", #partialData, "Latent:", isLatent)
+        if debug then
+            print("[Callback] Received response. Ticket:", ticket, "Size:", #partialData, "Latent:", isLatent)
+        end
         local decoded = isLatent and accumulateData(ticket, partialData) or (select(2, pcall(mpUnpack, partialData)))
         if decoded then
             incomingChunks[ticket] = nil
             handleResponse(ticket, decoded, isLatent, -1)
         else
-            -- print("[Callback] Waiting for more chunks. Ticket:", ticket)
+            if debug then
+                print("[Callback] Waiting for more chunks. Ticket:", ticket)
+            end
         end
     end)
 end
