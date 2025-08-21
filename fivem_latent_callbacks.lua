@@ -39,7 +39,7 @@ local REQ_EVENT     = EVENT_PREFIX .. "request"
 local RES_EVENT     = EVENT_PREFIX .. "response"
 
 -- Latent bandwidth limit (BYTES/sec). Tune per your server.
-local BANDWIDTH_LIMIT = 1_000_000   -- ~1 MB/s per target
+local BANDWIDTH_LIMIT = 1000000   -- ~1 MB/s per target
 
 -- Safety caps
 local MAX_PAYLOAD        = 10 * 1024 * 1024  -- 10 MB max unpacked payload per ticket
