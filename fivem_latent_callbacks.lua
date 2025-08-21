@@ -34,6 +34,7 @@ local RESOURCE  = GetCurrentResourceName()
 
 -- Make Sure different versions dont collide. (Wont Accept each other callbacks but wont break)
 local EVENT_PREFIX  = ("v-%s-cb:"):format(VERSION)
+-- local EVENT_PREFIX  = ("v-%s-cb:%s:"):format(VERSION, RESOURCE) -- Uncomment if you dont want the ressource to interact with other ressources callbacks but comment the other one out then
 local REQ_EVENT     = EVENT_PREFIX .. "request"
 local RES_EVENT     = EVENT_PREFIX .. "response"
 
