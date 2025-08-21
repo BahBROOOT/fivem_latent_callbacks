@@ -1,232 +1,191 @@
-# fivem_latent_callbacks
+# Safe Callbacks for FiveM — README
 
-This script enables **client ↔ server callbacks** using both **normal** and **latent** event transfer in FiveM. It supports:
+Tiny, security-hardened client↔server callback layer with optional **latent** events for large payloads. Works on both sides; event names are namespaced per resource to prevent collisions.
 
-- **Normal callbacks** for typical communication  
-- **Latent callbacks** (`TriggerLatentEvent`) for **large data** (chunked over time)  
-- **Multiple return values**: `return val1, val2, val3` (no need for `{}`)  
-- **Automatic `source`** (no need for `__playerId` from client→server)  
-- **Manual `__playerId`** only needed for server→client calls  
-- Built-in support for **timeouts**, **chunked data**, and **msgpack serialization**  
+## Features
+
+* Safe request/response with **promises** (sync or async style)
+* **Latent** mode for big transfers (bandwidth-capped, BYTES/sec)
+* **DoS guards**: per-player rate limit + concurrency cap (server)
+* **No `source` spoofing** (trusted `args.source`)
+* Ticket **duplicate** protection & TTL cleanup
+* **Owner verification** (only the asked client can resolve)
+* Strict **event name validation** (configurable)
+* Helper: **`RegisterSecureCallback`** with a validator
+
+## Install
+
+1. Put the script in your resource (both client & server).
+2. Ensure it’s loaded on each side where you’ll call/register.
+3. (Optional) Tweak the **Config** section at the top:
+
+   * `BANDWIDTH_LIMIT` (bytes/sec, latent)
+   * `MAX_PAYLOAD`, `CHUNK_TTL_MS`, rate limits, concurrency
+   * `STRICT_EVENT_NAMES`, `EVENTNAME_PATTERN`
+   * `debug` (set `true` to log)
 
 ---
 
-## How to Use
+## Quickstart
 
-1. **Download** `fivem_latent_callbacks.lua` (the updated version) and put it in your resource.  
-2. **Initialize** it as a **shared_script** in `fxmanifest.lua`:
-
-   ```lua
-   shared_script 'fivem_latent_callbacks.lua'
-   ```
-
-3. **Register a callback** with `RegisterCallback(eventName, function(args))` in either client or server code.  
-4. **Trigger that callback** from the opposite side using `TriggerCallback(...)` or `TriggerLatentCallback(...)`.  
-5. **Return values** from your callback just like normal Lua functions: `return someValue, someOtherValue`.  
-6. If you do **asynchronous** usage, pass an extra callback parameter to `TriggerCallback(...)`.  
-7. **(Server→Client Only)**: If you’re calling the client from the server, pass `__playerId = <Player ID>` in your args so the script knows which client to contact.  
-
-### Example
+### Register a callback (server or client)
 
 ```lua
--- On the server:
-RegisterCallback("myCallback", function(args)
-    return "It works!", 42
+RegisterCallback("inventory:get", function(args)
+    -- args.source is trusted: player id on server, -1 on client
+    return { items = { "bread", "water" } }
 end)
-
--- On the client:
-local msg, number = TriggerCallback("myCallback")
-print(msg, number) -- prints: It works!  42
 ```
 
----
-
-## Configuration
-
-Inside `fivem_latent_callbacks.lua`, you can adjust the **bandwidth limit for latent callbacks** (in bits per second):
+### Client → Server (sync)
 
 ```lua
-local BANDWIDTH_LIMIT = 1000000 -- 1 Mbps default
+local data, err = TriggerCallback("inventory:get", {}, 10)
+if not data then
+    print("Failed:", err)           -- e.g., "Callback timed out."
+else
+    print(json.encode(data))
+end
 ```
 
-> :warning: Raising this can speed up large data transfers but **risks** choking your network if overused.
+### Client → Server (async)
+
+```lua
+TriggerCallback("inventory:get", {}, 10, function(data, err)
+    if err then return print("Failed:", err) end
+    print("Items:", json.encode(data))
+end)
+```
+
+### Server → Client (targeted)
+
+```lua
+-- Prefer this helper to avoid putting __playerId in args
+TriggerCallbackFor(playerId, "ui:open", { page = "shop" }, 15)
+```
+
+### Latent (either side)
+
+```lua
+-- Use for large payloads (e.g., > 128KB)
+TriggerLatentCallback("data:bulk", hugeTable, 60, function(ok, err)
+    if err then print("bulk err:", err) end
+end)
+```
 
 ---
 
 ## API
 
-### `RegisterCallback(eventName, function(args))`
+### `RegisterCallback(eventName, handler)`
 
-Registers a named callback handler.
+Registers a function to handle requests.
 
-```lua
-RegisterCallback("myEvent", function(args)
-    local src = args.source -- the player who called it, or -1 if client
-    return "hello", 123
-end)
-```
+* `handler(args)` returns any values; they’ll round-trip back to the caller.
+* `args.source` is injected and **cannot** be overridden by the caller.
 
-### `UnregisterCallback(eventName)`
+### `RegisterSecureCallback(eventName, validator, handler)`
 
-Unregisters a previously registered callback by name.
+Wraps your handler with a validator.
+
+* `validator(args)` → `true` or `false,"reason"`
+* On `false`, the caller receives `(nil, "reason")`.
+
+### `TriggerCallback(event, args?, timeoutSec?, async?, method?)`
+
+Sends a request to the other side.
+
+* `method`: `"normal"` (default) or `"latent"`
+* **Sync**: returns `...` on success or `nil, "error"` on failure/timeout.
+* **Async**: calls `asyncCallback(result..., err)`; on success, `err` is `nil`.
+
+### `TriggerCallbackFor(playerId, event, args?, timeoutSec?, async?, method?)` (server only)
+
+Server→client convenience wrapper that never exposes `__playerId` in user args.
+
+### `TriggerLatentCallback(event, args?, timeoutSec?, async?)`
+
+Shorthand for latent mode.
 
 ---
 
-### `TriggerCallback(eventName, args, timeout?, asyncCallback?, method?)`
+## Safety Defaults & Limits (server)
 
-Triggers a callback on the **other side** (client or server).
+* **Rate limit**: token bucket (`RATE_TOKENS_PER_SEC`, `RATE_BURST`)
+* **Size cost**: `RATE_COST_PER_64KB` per 64KB to thwart spammy large requests
+* **Concurrency cap**: `MAX_INFLIGHT_PER_PLAYER` inflight requests per player
+* **Payload cap**: `MAX_PAYLOAD` (\~10MB) with TTL cleanup
+* **Owner check**: responses must come from the same player that was asked
+* **Duplicate/Replay**: tickets tracked; duplicates ignored briefly (`SEEN_TTL_MS`)
+
+**Note:** FiveM latent bandwidth arg is **bytes/sec**. `BANDWIDTH_LIMIT = 1_000_000` ≈ 1 MB/s per target; tune for your player counts.
+
+---
+
+## Examples
+
+### 1) Validated purchase (server)
 
 ```lua
-local a, b = TriggerCallback(
-    "myEvent",      -- callback name
-    { foo = "bar" }, -- args to pass
-    5,              -- optional timeout in seconds
-    nil,            -- optional async callback
-    "normal"        -- or "latent" (optional)
+RegisterSecureCallback("shop:buy",
+  function(a)
+    if type(a.item) ~= "string" then return false, "invalid item" end
+    if type(a.qty)  ~= "number" or a.qty < 1 or a.qty > 50 then
+      return false, "invalid qty"
+    end
+    return true
+  end,
+  function(a)
+    local src = a.source
+    -- do billing/inventory checks here…
+    return true, "ok"
+  end
 )
 ```
 
-- `args`: Table of data to send.  
-  - **Server→Client** must include `args.__playerId = somePlayerId`.  
-  - **Client→Server** does *not* need that.  
-- `timeout`: If no response by then, it throws a timeout.  
-- `asyncCallback`: If provided, the function call is non-blocking and the response is handled in that callback.  
-- `method`: `'normal'` (default) or `'latent'` (for large data sets).
-
----
-
-### `TriggerLatentCallback(eventName, args, timeout?, asyncCallback?)`
-
-Shorthand for triggering a callback in **latent** mode (chunked data).
+Client:
 
 ```lua
-TriggerLatentCallback("myLatentEvent", args, 10, function(result)
-    -- ...
+local ok, msg = TriggerCallback("shop:buy", { item = "bread", qty = 2 }, 10)
+if not ok then print("Purchase failed:", msg) end
+```
+
+### 2) Server pushes UI data to a player
+
+```lua
+RegisterCallback("ui:getDashboard", function(a)
+    return { cash = 12345, jobs = { "miner", "trucker" } }
+end)
+
+-- later, from server:
+TriggerCallbackFor(src, "ui:getDashboard", {}, 10, function(data, err)
+    if err then print("dash err:", err) return end
+    -- send to NUI or client state
 end)
 ```
 
----
-
-## fxmanifest.lua Example
+### 3) Big data with latent
 
 ```lua
-fx_version 'cerulean'
-game 'gta5'
-
-shared_script 'fivem_latent_callbacks.lua'
-server_script 'server.lua'
-client_script 'client.lua'
-```
-
----
-
-## Server Example (`server.lua`)
-
-```lua
--- Normal client→server callback
-RegisterCallback("myTestEvent", function(data)
-    local src = data.source
-    print("[Server] Callback from #"..src, data.foo)
-    local name = GetPlayerName(src) or "Unknown"
-    return ("Hello %s from the server!"):format(name), 42
+-- either side
+local big = { entries = {} }
+for i=1, 500000 do big.entries[i] = { id=i, v=i*2 } end
+TriggerLatentCallback("data:sync", big, 90, function(_, err)
+    if err then print("sync failed:", err) end
 end)
-
--- Latent callback with big data
-RegisterCallback("myLatentEvent", function(data)
-    local src = data.source
-    local payload = {}
-    for i = 1, 50000 do
-        payload[i] = { id = i, msg = "Massive data chunk" }
-    end
-    return payload
-end)
-
--- Server triggers a callback on the client
-RegisterCommand("testcb", function(source)
-    TriggerCallback("client:hello", {
-        __playerId = source, -- <== Must specify this so we know which client
-        foo = "Hi from the server"
-    }, 5, function(msg, num)
-        print("[Server] Client returned:", msg, num)
-    end)
-end, false)
 ```
-
----
-
-## Client Example (`client.lua`)
-
-```lua
--- Callback handler for server→client call
-RegisterCallback("client:hello", function(args)
-    print("[Client] Callback received:", args.foo)
-    return "Client here!", 999
-end)
-
--- Normal usage: client→server
-RegisterCommand("testcallback", function()
-    local greeting, num = TriggerCallback("myTestEvent", { foo = "bar" }, 5)
-    print("[Client] Server replied:", greeting, num)
-end, false)
-
--- Latent usage: client→server
-RegisterCommand("testlatent", function()
-    local data = TriggerLatentCallback("myLatentEvent", {}, 10)
-
-    if data then
-        print("[Client] Big data received. Items:", #data)
-    else
-        print("[Client] No data or timed out.")
-    end
-end, false)
-```
-
----
-
-## Return Styles
-
-Callbacks support both multiple returns and table returns:
-
-```lua
--- Modern style
-return "value1", 123
-
--- Or table style
-return { "value1", 123 }
-```
-
----
-
-## Troubleshooting
-
-| Issue                                       | Fix                                                                                                  |
-|--------------------------------------------|-------------------------------------------------------------------------------------------------------|
-| **No response / times out**                | Increase `timeout` or ensure the callback name matches (typos?), or that the other side’s script runs |
-| **Server sees `table: 0x#######`**         | You might be returning a table-of-tables. Check your usage or just `return "something", 123`         |
 
 ---
 
 ## Tips
 
-- Use **latent** callbacks for:
-  - base64 or big binary data
-  - Large lists (e.g., tens of thousands of rows)
-- Keep **normal** callbacks for quick & small data to avoid unneeded chunking overhead.
+* Don’t set `args.source` yourself; it’s injected.
+* Keep event names simple; with `STRICT_EVENT_NAMES` they must match: `[%w%._%-:/]+`.
+* Use validators (`RegisterSecureCallback`) for any action that changes state or money.
+* Prefer **latent** for anything you expect to exceed \~128KB.
 
 ---
 
-## Compatibility
+## License
 
-- ✅ Works with both `"return val1, val2"` and `"return { val1, val2 }"`  
-- ✅ Works server→client (must specify `__playerId`) and client→server (no `__playerId` needed)  
-- ✅ Uses `msgpack` for efficient serialization  
-- ✅ Chunked transfers for large payloads  
-- ✅ Timeout-based error handling  
-
----
-
-## Credits
-
-- **Author**: BahBROOOT (aka BahBROOOT1)  
-- **License**: MIT — free to use and modify  
-- **Last Updated**: April 2025  
+MIT — see header in the source file.
