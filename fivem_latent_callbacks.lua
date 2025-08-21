@@ -32,8 +32,8 @@ VERSION = "2.0.0" -- Do NOT edit
 local IS_SERVER = IsDuplicityVersion()
 local RESOURCE  = GetCurrentResourceName()
 
--- Namespace all net events so other resources cant accidentally (or intentionally) collide. + Make Sure different versions dont collide. (Wont Accept each other callbacks but wont break)
-local EVENT_PREFIX  = ("v-%s-cb:%s:"):format(VERSION, RESOURCE)
+-- Make Sure different versions dont collide. (Wont Accept each other callbacks but wont break)
+local EVENT_PREFIX  = ("v-%s-cb:"):format(VERSION)
 local REQ_EVENT     = EVENT_PREFIX .. "request"
 local RES_EVENT     = EVENT_PREFIX .. "response"
 
@@ -63,7 +63,7 @@ local EVENTNAME_PATTERN  = "^[%w%._%-:/]+$"  -- loosen/tighten as you wish
 local debug = false
 local function dbg(...)
     if debug then
-        print(("[Callback][%s][v:%s][DEBUG]"):format(RESOURCE, VERSION), ...)
+        print(("[Callback][v:%s][DEBUG]"):format(VERSION), ...)
     end
 end
 

@@ -1,6 +1,6 @@
 # Safe Callbacks for FiveM — README
 
-Tiny, security-hardened client↔server callback layer with optional **latent** events for large payloads. Works on both sides; event names are namespaced per resource to prevent collisions.
+Tiny, security-hardened client↔server callback layer with optional **latent** events for large payloads.
 
 ## Features
 
