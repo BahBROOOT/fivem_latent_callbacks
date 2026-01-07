@@ -6,9 +6,7 @@ Tiny, security-hardened client↔server callback layer with optional **latent** 
 
 * Safe request/response with **promises** (sync or async style)
 * **Latent** mode for big transfers (bandwidth-capped, BYTES/sec)
-* **DoS guards**: per-player rate limit + concurrency cap (server)
-* **No `source` spoofing** (trusted `args.source`)
-* Ticket **duplicate** protection & TTL cleanup
+* Ticket **duplicate** protection
 * **Owner verification** (only the asked client can resolve)
 * Strict **event name validation** (configurable)
 * Helper: **`RegisterSecureCallback`** with a validator
